@@ -10,7 +10,7 @@ model:
   upsample_list: [3000, 6000, 9000]
   update_emptymask_list: [4000, 8000, 10000]
   fusion_one: "multiply" #change to sum, concat, multiply
-  fusion_two: "concat" #change to sum, concat, multiply
+  fusion_two: "sum" #change to sum, concat, multiply
   init_scale: 0.9
   init_shift: 0.5
   density_dim: 8
