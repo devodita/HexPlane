@@ -4,13 +4,18 @@ from torch.nn import functional as F
 from hexplane.model.HexPlane_Base import HexPlane_Base
 
 
-class HexPlane(HexPlane_Base):
+class HexPlane_Slim(HexPlane_Base):
     """
-    A general version of HexPlane, which supports different fusion methods and feature regressor methods.
+    A simplified version of HexPlane, which assumes the following:
+    1. Fusion-One is "Multiply" and Fusion-Two is "Concat".
+    2. We directly calculate densities from HexPlane without MLPs, which means  DensityMode is "plain" and density_dim = 1.
     """
 
     def __init__(self, aabb, gridSize, device, time_grid, near_far, **kargs):
         super().__init__(aabb, gridSize, device, time_grid, near_far, **kargs)
+        assert (
+            self.DensityMode == "plain" and self.density_dim == 1
+        )  # Assume we directly calculate densities from HexPlane without MLPs.
 
     def init_planes(self, res, device):
         """
@@ -22,44 +27,16 @@ class HexPlane(HexPlane_Base):
         self.app_plane, self.app_line_time = self.init_one_hexplane(
             self.app_n_comp, self.gridSize, device
         )
+        self.app_basis_mat = torch.nn.Linear(
+            sum(self.app_n_comp), self.app_dim, bias=False
+        ).to(device)
 
-        if (
-            self.fusion_two != "concat"
-        ):  # if fusion_two is not concat, then we need dimensions from each paired planes are the same.
-            assert self.app_n_comp[0] == self.app_n_comp[1]
-            assert self.app_n_comp[0] == self.app_n_comp[2]
-
-        # We use density_basis_mat and app_basis_mat to project extracted features from HexPlane to density_dim/app_dim.
-        # density_basis_mat and app_basis_mat are linear layers, whose input dims are calculated based on the fusion methods.
-        if self.fusion_two == "concat":
-            if self.fusion_one == "concat":
-                self.density_basis_mat = torch.nn.Linear(
-                    sum(self.density_n_comp) * 2, self.density_dim, bias=False
-                ).to(device)
-                self.app_basis_mat = torch.nn.Linear(
-                    sum(self.app_n_comp) * 2, self.app_dim, bias=False
-                ).to(device)
-            else:
-                self.density_basis_mat = torch.nn.Linear(
-                    sum(self.density_n_comp), self.density_dim, bias=False
-                ).to(device)
-                self.app_basis_mat = torch.nn.Linear(
-                    sum(self.app_n_comp), self.app_dim, bias=False
-                ).to(device)
-        else:
-            self.density_basis_mat = torch.nn.Linear(
-                self.density_n_comp[0], self.density_dim, bias=False
-            ).to(device)
-            self.app_basis_mat = torch.nn.Linear(
-                self.app_n_comp[0], self.app_dim, bias=False
-            ).to(device)
-
-        # Initialize the basis matrices
-        with torch.no_grad():
-            weights = torch.ones_like(self.density_basis_mat.weight) / float(
-                self.density_dim
+        density_basis_mat = []
+        for i in range(len(self.vecMode)):
+            density_basis_mat.append(
+                torch.nn.Parameter(torch.ones(self.density_n_comp[i], 1))
             )
-            self.density_basis_mat.weight.copy_(weights)
+        self.density_basis_mat = torch.nn.ParameterList(density_basis_mat).to(device)
 
     def init_one_hexplane(self, n_component, gridSize, device):
         plane_coef, line_time_coef = [], []
@@ -114,7 +91,7 @@ class HexPlane(HexPlane_Base):
             {
                 "params": self.density_basis_mat.parameters(),
                 "lr": lr_scale * cfg.lr_density_nn,
-                "lr_org": cfg.lr_density_nn,
+                "lr_org": lr_scale * cfg.lr_density_nn,
             },
             {
                 "params": self.app_basis_mat.parameters(),
@@ -185,52 +162,27 @@ class HexPlane(HexPlane_Base):
             .view(3, -1, 1, 2)
         )
 
-        plane_feat, line_time_feat = [], []
-        # Extract features from six feature planes.
+        density_feature = torch.zeros(
+            (xyz_sampled.shape[0],), device=xyz_sampled.device
+        )
         for idx_plane in range(len(self.density_plane)):
             # Spatial Plane Feature: Grid sampling on density plane[idx_plane] given coordinates plane_coord[idx_plane].
-            plane_feat.append(
-                F.grid_sample(
-                    self.density_plane[idx_plane],
-                    plane_coord[[idx_plane]],
-                    align_corners=self.align_corners,
-                ).view(-1, *xyz_sampled.shape[:1])
-            )
+            plane_feat = F.grid_sample(
+                self.density_plane[idx_plane],
+                plane_coord[[idx_plane]],
+                align_corners=self.align_corners,
+            ).view(-1, *xyz_sampled.shape[:1])
             # Spatial-Temoral Feature: Grid sampling on density line_time[idx_plane] plane given coordinates line_time_coord[idx_plane].
-            line_time_feat.append(
-                F.grid_sample(
-                    self.density_line_time[idx_plane],
-                    line_time_coord[[idx_plane]],
-                    align_corners=self.align_corners,
-                ).view(-1, *xyz_sampled.shape[:1])
+            line_time_feat = F.grid_sample(
+                self.density_line_time[idx_plane],
+                line_time_coord[[idx_plane]],
+                align_corners=self.align_corners,
+            ).view(-1, *xyz_sampled.shape[:1])
+
+            density_feature = density_feature + torch.sum(
+                plane_feat * line_time_feat * self.density_basis_mat[idx_plane], dim=0
             )
-        plane_feat, line_time_feat = torch.stack(plane_feat, dim=0), torch.stack(
-            line_time_feat, dim=0
-        )
-
-        # Fusion One
-        if self.fusion_one == "multiply":
-            inter = plane_feat * line_time_feat
-        elif self.fusion_one == "sum":
-            inter = plane_feat + line_time_feat
-        elif self.fusion_one == "concat":
-            inter = torch.cat([plane_feat, line_time_feat], dim=0)
-        else:
-            raise NotImplementedError("no such fusion type")
-
-        # Fusion Two
-        if self.fusion_two == "multiply":
-            inter = torch.prod(inter, dim=0)
-        elif self.fusion_two == "sum":
-            inter = torch.sum(inter, dim=0)
-        elif self.fusion_two == "concat":
-            inter = inter.view(-1, inter.shape[-1])
-        else:
-            raise NotImplementedError("no such fusion type")
-
-        inter = self.density_basis_mat(inter.T)  # Feature Projection
-
-        return inter
+        return density_feature
 
     def compute_appfeature(
         self, xyz_sampled: torch.Tensor, frame_time: torch.Tensor
@@ -293,33 +245,9 @@ class HexPlane(HexPlane_Base):
                 ).view(-1, *xyz_sampled.shape[:1])
             )
 
-        plane_feat, line_time_feat = torch.stack(plane_feat), torch.stack(
-            line_time_feat
-        )
+        plane_feat, line_time_feat = torch.cat(plane_feat), torch.cat(line_time_feat)
 
-        # Fusion One
-        if self.fusion_one == "multiply":
-            inter = plane_feat * line_time_feat
-        elif self.fusion_one == "sum":
-            inter = plane_feat + line_time_feat
-        elif self.fusion_one == "concat":
-            inter = torch.cat([plane_feat, line_time_feat], dim=0)
-        else:
-            raise NotImplementedError("no such fusion type")
-
-        # Fusion Two
-        if self.fusion_two == "multiply":
-            inter = torch.prod(inter, dim=0)
-        elif self.fusion_two == "sum":
-            inter = torch.sum(inter, dim=0)
-        elif self.fusion_two == "concat":
-            inter = inter.view(-1, inter.shape[-1])
-        else:
-            raise NotImplementedError("no such fusion type")
-
-        inter = self.app_basis_mat(inter.T)  # Feature Projection
-
-        return inter
+        return self.app_basis_mat((plane_feat * line_time_feat).T)
 
     def TV_loss_density(self, reg, reg2=None):
         total = 0
