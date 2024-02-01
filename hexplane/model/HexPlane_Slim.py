@@ -17,41 +17,20 @@ class HexPlane_Slim(HexPlane_Base):
             self.DensityMode == "plain" and self.density_dim == 1
         )  # Assume we directly calculate densities from HexPlane without MLPs.
 
-    def init_double_plane(self, n_component, gridSize, device):
-        xy_plane_coef, zt_plane_coef = [], []
+    def __init__(self, aabb, gridSize, device, time_grid, near_far, **kargs):
+        super().__init__(aabb, gridSize, device, time_grid, near_far, **kargs)
+        assert (
+            self.DensityMode == "plain" and self.density_dim == 1
+        )  # Assume we directly calculate densities from HexPlane without MLPs.
 
-        for i in range(len(self.vecMode)):
-            vec_id = self.vecMode[i]
-            mat_id_0, mat_id_1 = self.matMode[i]
-
-            xy_plane_coef.append(
-                torch.nn.Parameter(
-                    self.init_scale
-                    * torch.randn(
-                        (1, n_component[i], gridSize[mat_id_1], gridSize[mat_id_0])
-                    )
-                    + self.init_shift
-                )
-            )
-            zt_plane_coef.append(
-                torch.nn.Parameter(
-                    self.init_scale
-                    * torch.randn((1, n_component[i], gridSize[vec_id], self.time_grid))
-                    + self.init_shift
-                )
-            )
-
-        return (
-            torch.nn.ParameterList(xy_plane_coef).to(device),
-            torch.nn.ParameterList(zt_plane_coef).to(device),
-        )
-
-    # Update init_planes method
     def init_planes(self, res, device):
-        self.density_xy_plane, self.density_zt_plane = self.init_double_plane(
+        """
+        Initialize the planes. density_plane is the spatial plane while density_line_time is the spatial-temporal plane.
+        """
+        self.density_plane, self.density_line_time = self.init_one_hexplane(
             self.density_n_comp, self.gridSize, device
         )
-        self.app_xy_plane, self.app_zt_plane = self.init_double_plane(
+        self.app_plane, self.app_line_time = self.init_one_hexplane(
             self.app_n_comp, self.gridSize, device
         )
         self.app_basis_mat = torch.nn.Linear(
@@ -64,6 +43,34 @@ class HexPlane_Slim(HexPlane_Base):
                 torch.nn.Parameter(torch.ones(self.density_n_comp[i], 1))
             )
         self.density_basis_mat = torch.nn.ParameterList(density_basis_mat).to(device)
+
+    def init_one_hexplane(self, n_component, gridSize, device):
+        plane_coef, line_time_coef = [], []
+
+        for i in range(len(self.vecMode)):
+            vec_id = self.vecMode[i]
+            mat_id_0, mat_id_1 = self.matMode[i]
+
+            plane_coef.append(
+                torch.nn.Parameter(
+                    self.init_scale
+                    * torch.randn(
+                        (1, n_component[i], gridSize[mat_id_1], gridSize[mat_id_0])
+                    )
+                    + self.init_shift
+                )
+            )
+            line_time_coef.append(
+                torch.nn.Parameter(
+                    self.init_scale
+                    * torch.randn((1, n_component[i], gridSize[vec_id], self.time_grid))
+                    + self.init_shift
+                )
+            )
+
+        return torch.nn.ParameterList(plane_coef).to(device), torch.nn.ParameterList(
+            line_time_coef
+        ).to(device)
 
 
     def get_optparam_groups(self, cfg, lr_scale=1.0):
