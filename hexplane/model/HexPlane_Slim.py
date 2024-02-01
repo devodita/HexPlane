@@ -234,9 +234,9 @@ class HexPlane_Slim(HexPlane_Base):
         return plane_coef
 
     @torch.no_grad()
-    def upsample_volume_grid(self, res_target):
+    def upsample_volume_grid(self, res_target, time_grid):
         self.app_plane = self.up_sampling_planes(self.app_plane, res_target)
         self.density_plane = self.up_sampling_planes(self.density_plane, res_target)
 
         self.update_stepSize(res_target)
-        print(f"upsamping to {res_target}")
+        print(f"upsampling to {res_target}")
