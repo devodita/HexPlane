@@ -2,7 +2,7 @@ systems:
   basedir: "./logs"
 
 model:
-  model_name: "HexPlane"
+  model_name: "sh" #Change to HexPlane. sh
   N_voxel_init: 262144
   time_grid_init: 16
   time_grid_final: 24
