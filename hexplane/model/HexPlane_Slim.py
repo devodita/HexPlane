@@ -17,22 +17,12 @@ class HexPlane_Slim(HexPlane_Base):
             self.DensityMode == "plain" and self.density_dim == 1
         )  # Assume we directly calculate densities from HexPlane without MLPs.
 
-    def __init__(self, aabb, gridSize, device, time_grid, near_far, **kargs):
-        super().__init__(aabb, gridSize, device, time_grid, near_far, **kargs)
-        assert (
-            self.DensityMode == "plain" and self.density_dim == 1
-        )  # Assume we directly calculate densities from HexPlane without MLPs.
-
     def init_planes(self, res, device):
         """
         Initialize the planes. density_plane is the spatial plane while density_line_time is the spatial-temporal plane.
         """
-        self.density_plane, self.density_line_time = self.init_one_hexplane(
-            self.density_n_comp, self.gridSize, device
-        )
-        self.app_plane, self.app_line_time = self.init_one_hexplane(
-            self.app_n_comp, self.gridSize, device
-        )
+        self.density_plane = self.init_one_hexplane(self.density_n_comp, self.gridSize, device)
+        self.app_plane = self.init_one_hexplane(self.app_n_comp, self.gridSize, device)
         self.app_basis_mat = torch.nn.Linear(
             sum(self.app_n_comp), self.app_dim, bias=False
         ).to(device)
@@ -45,7 +35,7 @@ class HexPlane_Slim(HexPlane_Base):
         self.density_basis_mat = torch.nn.ParameterList(density_basis_mat).to(device)
 
     def init_one_hexplane(self, n_component, gridSize, device):
-        plane_coef, line_time_coef = [], []
+        plane_coef = []
 
         for i in range(len(self.vecMode)):
             vec_id = self.vecMode[i]
@@ -60,35 +50,16 @@ class HexPlane_Slim(HexPlane_Base):
                     + self.init_shift
                 )
             )
-            line_time_coef.append(
-                torch.nn.Parameter(
-                    self.init_scale
-                    * torch.randn((1, n_component[i], gridSize[vec_id], self.time_grid))
-                    + self.init_shift
-                )
-            )
 
-        return torch.nn.ParameterList(plane_coef).to(device), torch.nn.ParameterList(
-            line_time_coef
-        ).to(device)
+        return torch.nn.ParameterList(plane_coef).to(device)
 
 
     def get_optparam_groups(self, cfg, lr_scale=1.0):
         grad_vars = [
             {
-                "params": self.density_line_time,
-                "lr": lr_scale * cfg.lr_density_grid,
-                "lr_org": cfg.lr_density_grid,
-            },
-            {
                 "params": self.density_plane,
                 "lr": lr_scale * cfg.lr_density_grid,
                 "lr_org": cfg.lr_density_grid,
-            },
-            {
-                "params": self.app_line_time,
-                "lr": lr_scale * cfg.lr_app_grid,
-                "lr_org": cfg.lr_app_grid,
             },
             {
                 "params": self.app_plane,
@@ -131,7 +102,7 @@ class HexPlane_Slim(HexPlane_Base):
         self, xyz_sampled: torch.Tensor, frame_time: torch.Tensor
     ) -> torch.Tensor:
         """
-        Compuate the density features of sampled points from density HexPlane.
+        Compute the density features of sampled points from density HexPlane.
 
         Args:
             xyz_sampled: (N, 3) sampled points' xyz coordinates.
@@ -141,7 +112,6 @@ class HexPlane_Slim(HexPlane_Base):
             density: (N) density of sampled points.
         """
         # Prepare coordinates for grid sampling.
-        # plane_coord: (3, B, 1, 2), coordinates for spatial planes, where plane_coord[:, 0, 0, :] = [[x, y], [x,z], [y,z]].
         plane_coord = (
             torch.stack(
                 (
@@ -149,21 +119,6 @@ class HexPlane_Slim(HexPlane_Base):
                     xyz_sampled[..., self.matMode[1]],
                     xyz_sampled[..., self.matMode[2]],
                 )
-            )
-            .detach()
-            .view(3, -1, 1, 2)
-        )
-        # line_time_coord: (3, B, 1, 2) coordinates for spatial-temporal planes, where line_time_coord[:, 0, 0, :] = [[t, z], [t, y], [t, x]].
-        line_time_coord = torch.stack(
-            (
-                xyz_sampled[..., self.vecMode[0]],
-                xyz_sampled[..., self.vecMode[1]],
-                xyz_sampled[..., self.vecMode[2]],
-            )
-        )
-        line_time_coord = (
-            torch.stack(
-                (frame_time.expand(3, -1, -1).squeeze(-1), line_time_coord), dim=-1
             )
             .detach()
             .view(3, -1, 1, 2)
@@ -179,15 +134,9 @@ class HexPlane_Slim(HexPlane_Base):
                 plane_coord[[idx_plane]],
                 align_corners=self.align_corners,
             ).view(-1, *xyz_sampled.shape[:1])
-            # Spatial-Temoral Feature: Grid sampling on density line_time[idx_plane] plane given coordinates line_time_coord[idx_plane].
-            line_time_feat = F.grid_sample(
-                self.density_line_time[idx_plane],
-                line_time_coord[[idx_plane]],
-                align_corners=self.align_corners,
-            ).view(-1, *xyz_sampled.shape[:1])
 
             density_feature = density_feature + torch.sum(
-                plane_feat * line_time_feat * self.density_basis_mat[idx_plane], dim=0
+                plane_feat * self.density_basis_mat[idx_plane], dim=0
             )
         return density_feature
 
@@ -195,7 +144,7 @@ class HexPlane_Slim(HexPlane_Base):
         self, xyz_sampled: torch.Tensor, frame_time: torch.Tensor
     ) -> torch.Tensor:
         """
-        Compuate the app features of sampled points from appearance HexPlane.
+        Compute the app features of sampled points from appearance HexPlane.
 
         Args:
             xyz_sampled: (N, 3) sampled points' xyz coordinates.
@@ -205,7 +154,6 @@ class HexPlane_Slim(HexPlane_Base):
             app_feature: (N, self.app_dim) density of sampled points.
         """
         # Prepare coordinates for grid sampling.
-        # plane_coord: (3, B, 1, 2), coordinates for spatial planes, where plane_coord[:, 0, 0, :] = [[x, y], [x,z], [y,z]].
         plane_coord = (
             torch.stack(
                 (
@@ -217,23 +165,8 @@ class HexPlane_Slim(HexPlane_Base):
             .detach()
             .view(3, -1, 1, 2)
         )
-        # line_time_coord: (3, B, 1, 2) coordinates for spatial-temporal planes, where line_time_coord[:, 0, 0, :] = [[t, z], [t, y], [t, x]].
-        line_time_coord = torch.stack(
-            (
-                xyz_sampled[..., self.vecMode[0]],
-                xyz_sampled[..., self.vecMode[1]],
-                xyz_sampled[..., self.vecMode[2]],
-            )
-        )
-        line_time_coord = (
-            torch.stack(
-                (frame_time.expand(3, -1, -1).squeeze(-1), line_time_coord), dim=-1
-            )
-            .detach()
-            .view(3, -1, 1, 2)
-        )
 
-        plane_feat, line_time_feat = [], []
+        plane_feat = []
         for idx_plane in range(len(self.app_plane)):
             # Spatial Plane Feature: Grid sampling on app plane[idx_plane] given coordinates plane_coord[idx_plane].
             plane_feat.append(
@@ -243,20 +176,10 @@ class HexPlane_Slim(HexPlane_Base):
                     align_corners=self.align_corners,
                 ).view(-1, *xyz_sampled.shape[:1])
             )
-            # Spatial-Temoral Feature: Grid sampling on app line_time[idx_plane] plane given coordinates line_time_coord[idx_plane].
-            """
-            line_time_feat.append(
-                F.grid_sample(
-                    self.app_line_time[idx_plane],
-                    line_time_coord[[idx_plane]],
-                    align_corners=self.align_corners,
-                ).view(-1, *xyz_sampled.shape[:1])
-            )
-            """
 
-        plane_feat, line_time_feat = torch.cat(plane_feat), torch.cat(line_time_feat)
+        plane_feat = torch.cat(plane_feat)
 
-        return self.app_basis_mat((plane_feat * line_time_feat).T)
+        return self.app_basis_mat(plane_feat.T)
 
     def TV_loss_density(self, reg, reg2=None):
         total = 0
@@ -264,7 +187,7 @@ class HexPlane_Slim(HexPlane_Base):
             reg2 = reg
         for idx in range(len(self.density_plane)):
             total = (
-                total + reg(self.density_plane[idx]) + reg2(self.density_line_time[idx])
+                total + reg(self.density_plane[idx])
             )
         return total
 
@@ -273,7 +196,7 @@ class HexPlane_Slim(HexPlane_Base):
         if reg2 is None:
             reg2 = reg
         for idx in range(len(self.app_plane)):
-            total = total + reg(self.app_plane[idx]) + reg2(self.app_line_time[idx])
+            total = total + reg(self.app_plane[idx])
         return total
 
     def L1_loss_density(self):
@@ -282,7 +205,6 @@ class HexPlane_Slim(HexPlane_Base):
             total = (
                 total
                 + torch.mean(torch.abs(self.density_plane[idx]))
-                + torch.mean(torch.abs(self.density_line_time[idx]))
             )
         return total
 
@@ -292,12 +214,11 @@ class HexPlane_Slim(HexPlane_Base):
             total = (
                 total
                 + torch.mean(torch.abs(self.app_plane[idx]))
-                + torch.mean(torch.abs(self.app_line_time[idx]))
             )
         return total
 
     @torch.no_grad()
-    def up_sampling_planes(self, plane_coef, line_time_coef, res_target, time_grid):
+    def up_sampling_planes(self, plane_coef, res_target):
         for i in range(len(self.vecMode)):
             vec_id = self.vecMode[i]
             mat_id_0, mat_id_1 = self.matMode[i]
@@ -309,25 +230,13 @@ class HexPlane_Slim(HexPlane_Base):
                     align_corners=self.align_corners,
                 )
             )
-            line_time_coef[i] = torch.nn.Parameter(
-                F.interpolate(
-                    line_time_coef[i].data,
-                    size=(res_target[vec_id], time_grid),
-                    mode="bilinear",
-                    align_corners=self.align_corners,
-                )
-            )
 
-        return plane_coef, line_time_coef
+        return plane_coef
 
     @torch.no_grad()
-    def upsample_volume_grid(self, res_target, time_grid):
-        self.app_plane, self.app_line_time = self.up_sampling_planes(
-            self.app_plane, self.app_line_time, res_target, time_grid
-        )
-        self.density_plane, self.density_line_time = self.up_sampling_planes(
-            self.density_plane, self.density_line_time, res_target, time_grid
-        )
+    def upsample_volume_grid(self, res_target):
+        self.app_plane = self.up_sampling_planes(self.app_plane, res_target)
+        self.density_plane = self.up_sampling_planes(self.density_plane, res_target)
 
         self.update_stepSize(res_target)
         print(f"upsamping to {res_target}")
