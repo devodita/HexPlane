@@ -244,6 +244,7 @@ class HexPlane_Slim(HexPlane_Base):
                 ).view(-1, *xyz_sampled.shape[:1])
             )
             # Spatial-Temoral Feature: Grid sampling on app line_time[idx_plane] plane given coordinates line_time_coord[idx_plane].
+            """
             line_time_feat.append(
                 F.grid_sample(
                     self.app_line_time[idx_plane],
@@ -251,6 +252,7 @@ class HexPlane_Slim(HexPlane_Base):
                     align_corners=self.align_corners,
                 ).view(-1, *xyz_sampled.shape[:1])
             )
+            """
 
         plane_feat, line_time_feat = torch.cat(plane_feat), torch.cat(line_time_feat)
 
