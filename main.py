@@ -1,11 +1,12 @@
-import datetime
 import os
 import random
-
+import wandb
 import numpy as np
 import torch
 from omegaconf import OmegaConf
+import datetime
 from torch.utils.tensorboard import SummaryWriter
+import sys
 
 from config.config import Config
 from hexplane.dataloader import get_test_dataset, get_train_dataset
@@ -16,6 +17,17 @@ from hexplane.render.trainer import Trainer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.float32)
 
+wandb.login(key = "c72679524bbe631e2f579d7e21ea07a12062af28")
+
+run_name = "Unnamed"
+if len(sys.argv) > 1:
+        run_name = str(sys.argv[len(sys.argv) - 1])
+    
+wandb.init(
+    entity = "hex-plane",
+    project = "MLRC",
+    name = run_name
+)
 
 def render_test(cfg):
     test_dataset = get_test_dataset(cfg, is_stack=True)
@@ -183,6 +195,9 @@ if __name__ == "__main__":
     else:
         yaml_cfg = OmegaConf.create()
     cfg = OmegaConf.merge(base_cfg, yaml_cfg, cli_cfg)  # merge configs
+
+    cfg2 = OmegaConf.to_container(cfg, resolve=True)
+    wandb.config.update(cfg2)
 
     # Fix Random Seed for Reproducibility.
     random.seed(cfg.systems.seed)
