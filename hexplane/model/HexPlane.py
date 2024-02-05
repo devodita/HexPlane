@@ -359,6 +359,57 @@ class HexPlane(HexPlane_Base):
             )
         return total
 
+    import torch
+from torch import nn
+
+
+def optical_flow_loss(flow_preds, flow_gt, valid_mask, 
+                      weights=None, smoothness_weight=0.01, consistency_weight=0.1):
+      """
+      Calculates optical flow loss for model regularization.
+
+      Args:
+          flow_preds: List of predicted flow tensors (B, H, W, 2).
+          flow_gt: Ground truth flow tensor (B, H, W, 2).
+          valid_mask: Mask for valid pixels (B, H, W).
+          weights: List of weights for each prediction (optional, default None).
+          smoothness_weight: Weight for smoothness regularization (default 0.01).
+          consistency_weight: Weight for temporal consistency regularization (default 0.1).
+
+      Returns:
+          loss: Total optical flow loss tensor.
+      """
+
+      flow_loss = 0.0
+
+      # 1. Calculate loss between predicted and ground truth flow:
+      for i, flow_pred in enumerate(flow_preds):
+        if weights is not None:
+          weight = weights[i]
+        else:
+          weight = 1.0
+    
+        flow_loss += weight * nn.functional.l1_loss(flow_pred * valid_mask, flow_gt * valid_mask)
+
+      # 2. Smoothness regularization (optional):
+      if smoothness_weight > 0:
+        for flow_pred in flow_preds:
+          flow_diff_x = torch.abs(flow_pred[:, :, 1:] - flow_pred[:, :, :-1])
+          flow_diff_y = torch.abs(flow_pred[:, 1:, :] - flow_pred[:, :-1, :])
+          smoothness_loss = torch.mean(torch.cat([flow_diff_x, flow_diff_y], dim=1) * valid_mask)
+          flow_loss += smoothness_weight * smoothness_loss
+
+      # 3. Temporal consistency regularization (optional):
+      if consistency_weight > 0 and len(flow_preds) > 1:
+        for i in range(1, len(flow_preds)):
+          prev_flow = flow_preds[i-1]
+          curr_flow = flow_preds[i]
+          consistency_loss = torch.mean(torch.abs(curr_flow - prev_flow) * valid_mask)
+          flow_loss += consistency_weight * consistency_loss
+
+      return flow_loss
+
+
     @torch.no_grad()
     def up_sampling_planes(self, plane_coef, line_time_coef, res_target, time_grid):
         for i in range(len(self.vecMode)):
