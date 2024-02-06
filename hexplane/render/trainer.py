@@ -394,7 +394,7 @@ class Trainer:
                 )
 
                 # log to wandb
-                wandb.log({"train/reg_l1_density": loss_l2.detach().item()})
+                wandb.log({"train/reg_l2_density": loss_l2.detach().item()})
 
             # L2 loss on the appearance planes
             if self.cfg.model.L2_weight_app > 0:
@@ -406,7 +406,7 @@ class Trainer:
                 )
 
                 # log to wandb
-                wandb.log({"train/reg_l1_app": loss_l2.detach().item()})
+                wandb.log({"train/reg_l2_app": loss_l2.detach().item()})
 
             # Loss on the rendered and gt depth maps.
             if self.cfg.model.depth_loss and self.cfg.model.depth_loss_weight > 0:
