@@ -382,6 +382,32 @@ class Trainer:
                 # log to wandb
                 wandb.log({"train/reg_l1_app": loss_l1.detach().item()})
 
+            # L2 loss on the density planes
+            if self.cfg.model.L2_weight_density > 0:
+                L2_weight_density = lr_factor * self.cfg.model.L2_weight_density
+                loss_l2 = model.L2_loss_density() * L2_weight_density
+                total_loss = total_loss + loss_l2
+                summary_writer.add_scalar(
+                    "train/reg_l2_density",
+                    loss_l2.detach().item(),
+                    global_step=iteration,
+                )
+
+                # log to wandb
+                wandb.log({"train/reg_l1_density": loss_l2.detach().item()})
+
+            # L2 loss on the appearance planes
+            if self.cfg.model.L2_weight_app > 0:
+                L2_weight_app = lr_factor * self.cfg.model.L2_weight_app
+                loss_l2 = model.L2_loss_app() * L2_weight_app
+                total_loss = total_loss + loss_l2
+                summary_writer.add_scalar(
+                    "train/reg_l2_app", loss_l2.detach().item(), global_step=iteration
+                )
+
+                # log to wandb
+                wandb.log({"train/reg_l1_app": loss_l2.detach().item()})
+
             # Loss on the rendered and gt depth maps.
             if self.cfg.model.depth_loss and self.cfg.model.depth_loss_weight > 0:
                 depth_loss = (depth_map.unsqueeze(-1) - depth) ** 2
