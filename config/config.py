@@ -81,6 +81,9 @@ class Model_Config:
     L2_weight_density: float = 0.0001
     L2_weight_app: float = 0.0001
 
+    lam1: float = 0.001
+    lam2: float = 0.001
+
     # Sampling
     align_corners: bool = True
     # There are two types of upsampling: aligned and unaligned.
