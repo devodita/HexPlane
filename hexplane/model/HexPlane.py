@@ -379,10 +379,6 @@ class HexPlane(HexPlane_Base):
     
 
 
-    
-
-    import torch
-from torch import nn    
 
     @torch.no_grad()
     def up_sampling_planes(self, plane_coef, line_time_coef, res_target, time_grid):
