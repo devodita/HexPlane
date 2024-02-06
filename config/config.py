@@ -78,6 +78,8 @@ class Model_Config:
     TV_weight_app: float = 0.0001
     L1_weight_density: float = 0.0
     L1_weight_app: float = 0.0
+    L2_weight_density: float = 0.0
+    L2_weight_app: float = 0.0
 
     # Sampling
     align_corners: bool = True
