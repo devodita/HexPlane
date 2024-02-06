@@ -359,9 +359,6 @@ class HexPlane(HexPlane_Base):
             )
         return total
 
-    import torch
-from torch import nn
-
 
     def optical_flow_loss(flow_preds, flow_gt, valid_mask, 
                           weights=None, smoothness_weight=0.01, consistency_weight=0.1):
@@ -409,6 +406,8 @@ from torch import nn
 
           return flow_loss
 
+    import torch
+from torch import nn    
 
     @torch.no_grad()
     def up_sampling_planes(self, plane_coef, line_time_coef, res_target, time_grid):
