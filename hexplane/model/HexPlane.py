@@ -365,6 +365,7 @@ class HexPlane(HexPlane_Base):
             total = (
                 total
                 + torch.norm(self.density_plane[idx],p=2)
+                + torch.norm(self.density_line_time[idx],p=2)
             )
         return total
 
@@ -374,6 +375,7 @@ class HexPlane(HexPlane_Base):
             total = (
                 total
                 + torch.norm(self.app_plane[idx],p=2)
+                + torch.norm(self.app_line_time[idx],p=2)
             )
         return total
     
