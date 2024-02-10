@@ -76,10 +76,10 @@ class Model_Config:
     TV_t_s_ratio: float = 2.0  # ratio of TV loss along temporal and spatial dimensions
     TV_weight_density: float = 0.0001
     TV_weight_app: float = 0.0001
-    L1_weight_density: float = 0.0001
-    L1_weight_app: float = 0.0001
-    L2_weight_density: float = 0.0001
-    L2_weight_app: float = 0.0001
+    L1_weight_density: float = 0.000
+    L1_weight_app: float = 0.000
+    L2_weight_density: float = 0.000
+    L2_weight_app: float = 0.000
 
     # Sampling
     align_corners: bool = True
